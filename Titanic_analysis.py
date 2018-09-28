@@ -4,13 +4,28 @@ import string
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn import linear_model
+from sklearn import svm
+from sklearn.model_selection import GridSearchCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+import math
 
 train_df = pd.read_csv('train.csv')
+test_df = pd.read_csv('test.csv')
+
+len(train_df)
+len(test_df)
+
+# All data:
+
+all_data = pd.concat([train_df,test_df], ignore_index=False, sort = False)
+all_data.isnull().sum() # So there are 418 Null values for survived which is the test data
+
 
 # Extract features:
 def substrings_in_string(big_string, substrings):
     for substring in substrings:
-        if string.find(big_string, substring) != -1: # string.find returns -1 if substring not in big_string
+        if big_string.find(substring) != -1: # string.find returns -1 if substring not in big_string
                                                     # so string.find is not equal to -1 if substring IS in big_string
             return substring
     # print big_string # only prints the name if string.find is not -1 so if substring is not in big_string
@@ -24,7 +39,7 @@ for name in train_df.Name:
 
 
 # Replace all titles with Mrs, Miss, Mr and Master:
-train_df['Title'] = train_df['Name'].map(lambda x:substrings_in_string(x,title_list))
+all_data['Title'] = all_data['Name'].map(lambda x:substrings_in_string(x,title_list))
 
 
 def replace_titles(x):
@@ -44,46 +59,157 @@ def replace_titles(x):
         return title
 
 
-train_df['Title'] = train_df.apply(replace_titles, axis = 1)
+all_data['Title'] = all_data.apply(replace_titles, axis = 1)
+
+
 
 
 
 # Turning cabin number into Deck
 cabin_list = ['A', 'B', 'C', 'D', 'E', 'F', 'T', 'G', 'Unknown']
 
-train_df['CabinStr'] = train_df['Cabin'].astype(str)
+all_data['CabinStr'] = all_data['Cabin'].astype(str)
 
-train_df['Deck'] = train_df['CabinStr'].map(lambda x: substrings_in_string(x, cabin_list))
+all_data['Deck'] = all_data['CabinStr'].map(lambda x: substrings_in_string(x, cabin_list))
 
 
 # Family size:
 
-train_df['Family_Size'] = train_df['SibSp'] + train_df['Parch']
+all_data['Family_Size'] = all_data['SibSp'] + all_data['Parch']
 
 # Age*Class:
 
-train_df['Age*Class'] = train_df['Age'] * train_df['Pclass']
+all_data['Age*Class'] = all_data['Age'] * all_data['Pclass']
 
 # Far per person:
 
-train_df['Fare_Per_Person'] = train_df['Fare'] / (train_df['Family_Size']+1)
+all_data['Fare_Per_Person'] = all_data['Fare'] / (all_data['Family_Size']+1)
+
+
+all_data.head(5)
+
+all_data.describe()
+
+all_data.describe(include=['O'])
+
+corr = all_data.corr()
+sns.heatmap(corr)
+
+sns.FacetGrid(all_data, col = 'Survived').map(plt.hist,'Age')
+
+
+sns.violinplot(x = 'Survived',y='Age',data=all_data)
+
+
+# Young people survived more and old people less
+
+all_data.isnull().mean()
+
+
+# Cabin has too many null vaues, drop it
+all_data = all_data.drop(['Cabin'], axis =1)
+
+# Fill in fare with mean:
+fare_mean = all_data['Fare'].mean()
+nan_count = all_data['Fare'].isnull().sum()
+all_data.loc[np.isnan(all_data['Fare']),'Fare'] = [fare_mean] * nan_count
+all_data['Fare_Per_Person'] = all_data['Fare'] / (all_data['Family_Size']+1)
+
+
 
 # Make catergorical one hot:
-train_df = pd.get_dummies(train_df, columns=['Pclass', 'Sex','Deck',
+all_data = pd.get_dummies(all_data, columns=['Sex','Deck',
                                              'Embarked','Title'],
                            drop_first=False)
 
-train_df.head(5)
-
-train_df.describe()
-
-train_df.describe(include=['O'])
-
-corr = train_df.corr()
-sns.heatmap(corr)
-
-sns.FacetGrid(train_df, col = 'Survived').map(plt.hist,'Age')
+all_data.isnull().mean()
 
 
-reg = linear_model.LinearRegression()
-reg.fit
+# Create a model to fill in Age
+X_train = all_data.iloc[1-np.isnan(all_data['Age'])].drop(['Survived','Age','Age*Class','PassengerId','Name','Ticket','CabinStr'] , axis =1)
+X_test = all_data[all_data['Age'].isnull()].drop(['Survived','Age','Age*Class','PassengerId','Name','Ticket','CabinStr'] , axis =1)
+
+Y_train = all_data.iloc[1-np.isnan(all_data['Age'])]['Age']
+
+regr = linear_model.LinearRegression()
+regr.fit(X_train, Y_train)
+
+# Add in fitted values for Age
+all_data.loc[all_data['Age'].isnull(),'Age'] = regr.predict(X_test)
+all_data['Age*Class'] = all_data['Age'] * all_data['Pclass']
+all_data = pd.get_dummies(all_data, columns=['Pclass'], drop_first=False)
+
+all_data.head()
+all_data = all_data.drop(['Ticket','Name','CabinStr'], axis = 1)
+
+print(all_data.columns.values)
+
+
+# Split train data into train and validation
+train_df = all_data[all_data['Survived'].notnull()]
+train_df.shape
+validation_indices = np.random.randint(0,len(train_df),size = math.floor(0.2*len(train_df)))
+validation_df = train_df[train_df.index.isin(validation_indices)]
+validation_df.shape
+train_df = train_df[~ train_df.index.isin(validation_indices)]
+train_df.shape
+
+test_df = all_data[all_data['Survived'].isnull()]
+
+
+X_train = train_df.drop(['Survived'],axis = 1)
+Y_train = train_df['Survived']
+
+X_val = validation_df.drop(['Survived'],axis = 1)
+Y_val = validation_df['Survived']
+
+X_test = test_df.drop(['Survived'],axis = 1)
+
+
+# Scale the data
+scaler = StandardScaler()
+scaler.fit(X_train)
+
+X_train = scaler.transform(X_train)
+X_val = scaler.transform(X_val)
+
+
+# create dict to hold validation accuracies of each technique
+accuracies = {}
+
+
+# Logistic regression model:
+logisticRegr = linear_model.LogisticRegression()
+logisticRegr.fit(X_train,Y_train )
+
+accuracies['logistic'] = 1- np.sum((logisticRegr.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies
+
+
+
+# Support vector machine
+SVMachine = svm.SVC()
+
+param_grid = {'C': [1, 5, 10, 50],
+              'gamma': [0.0001, 0.0005, 0.001, 0.005]}
+
+svm_CV = GridSearchCV(SVMachine, param_grid, cv=5)
+
+svm_CV.fit(X_train, Y_train)
+
+accuracies['SVM'] = 1- np.sum((svm_CV.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies
+
+
+# Nearest neighbour
+param_grid = {'n_neighbors': [1, 5, 10]}
+
+classifier = KNeighborsClassifier()
+
+nn_CV = GridSearchCV(classifier, param_grid, cv=5)
+
+nn_CV.fit(X_train, Y_train)
+
+
+accuracies['kNN'] = 1- np.sum((nn_CV.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies
