@@ -9,6 +9,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 import math
+import tensorflow as tf
+from tensorflow import keras
 
 train_df = pd.read_csv('train.csv')
 test_df = pd.read_csv('test.csv')
@@ -142,7 +144,7 @@ all_data = pd.get_dummies(all_data, columns=['Pclass'], drop_first=False)
 all_data.head()
 all_data = all_data.drop(['Ticket','Name','CabinStr'], axis = 1)
 
-print(all_data.columns.values)
+np.sqrt(regr.scale)
 
 
 # Split train data into train and validation
@@ -172,7 +174,7 @@ scaler.fit(X_train)
 
 X_train = scaler.transform(X_train)
 X_val = scaler.transform(X_val)
-
+X_test = scaler.transform(X_test)
 
 # create dict to hold validation accuracies of each technique
 accuracies = {}
@@ -182,9 +184,8 @@ accuracies = {}
 logisticRegr = linear_model.LogisticRegression()
 logisticRegr.fit(X_train,Y_train )
 
-accuracies['logistic'] = 1- np.sum((logisticRegr.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies['logistic'] = 1 - np.sum((logisticRegr.predict(X_val) - Y_val)**2) / len(validation_df)
 accuracies
-
 
 
 # Support vector machine
@@ -201,6 +202,7 @@ accuracies['SVM'] = 1- np.sum((svm_CV.predict(X_val) - Y_val)**2) / len(validati
 accuracies
 
 
+
 # Nearest neighbour
 param_grid = {'n_neighbors': [1, 5, 10]}
 
@@ -210,6 +212,31 @@ nn_CV = GridSearchCV(classifier, param_grid, cv=5)
 
 nn_CV.fit(X_train, Y_train)
 
-
 accuracies['kNN'] = 1- np.sum((nn_CV.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies
+
+
+
+# Neural network
+
+X_train.shape
+Y_train.shape
+
+NN_model = keras.Sequential([
+    keras.layers.Dense(28, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(2, activation=tf.nn.softmax)
+])
+
+NN_model.compile(optimizer=tf.train.AdamOptimizer(),
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+NN_model.fit(np.array(X_train), np.array(Y_train), epochs=5)
+
+val_loss, val_acc = NN_model.evaluate(np.array(X_val), np.array(Y_val))
+
+accuracies['NeuralNet'] = val_acc
 accuracies
