@@ -11,6 +11,8 @@ from sklearn.preprocessing import StandardScaler
 import math
 import tensorflow as tf
 from tensorflow import keras
+from sklearn.ensemble import RandomForestClassifier
+import os
 
 train_df = pd.read_csv('train.csv')
 test_df = pd.read_csv('test.csv')
@@ -144,8 +146,8 @@ all_data = pd.get_dummies(all_data, columns=['Pclass'], drop_first=False)
 all_data.head()
 all_data = all_data.drop(['Ticket','Name','CabinStr'], axis = 1)
 
-np.sqrt(regr.scale)
-
+all_data['Age'].max()
+all_data['Age'].min()
 
 # Split train data into train and validation
 train_df = all_data[all_data['Survived'].notnull()]
@@ -191,7 +193,7 @@ accuracies
 # Support vector machine
 SVMachine = svm.SVC()
 
-param_grid = {'C': [1, 5, 10, 50],
+param_grid = {'C': [1,2, 5, 10,20, 50],
               'gamma': [0.0001, 0.0005, 0.001, 0.005]}
 
 svm_CV = GridSearchCV(SVMachine, param_grid, cv=5)
@@ -204,7 +206,7 @@ accuracies
 
 
 # Nearest neighbour
-param_grid = {'n_neighbors': [1, 5, 10]}
+param_grid = {'n_neighbors': [1,2,3,4, 5, 10]}
 
 classifier = KNeighborsClassifier()
 
@@ -214,7 +216,6 @@ nn_CV.fit(X_train, Y_train)
 
 accuracies['kNN'] = 1- np.sum((nn_CV.predict(X_val) - Y_val)**2) / len(validation_df)
 accuracies
-
 
 
 # Neural network
@@ -240,3 +241,50 @@ val_loss, val_acc = NN_model.evaluate(np.array(X_val), np.array(Y_val))
 
 accuracies['NeuralNet'] = val_acc
 accuracies
+
+# Radndom forest
+rf = RandomForestClassifier(n_estimators = 1000)
+rf.fit(X_train, Y_train)
+
+accuracies['RandomForest'] = 1- np.sum((rf.predict(X_val) - Y_val)**2) / len(validation_df)
+accuracies
+
+
+# Random Forest predicitons as input to Neural network
+X_train_new
+
+X_train_new = pd.concat([pd.DataFrame(X_train),pd.Series(rf.predict(X_test)).reset_index()], axis=1,ignore_index = True).drop([28], axis = 1)
+X_val_new = pd.concat([pd.DataFrame(X_val),pd.Series(rf.predict(X_val)).reset_index()], axis=1,ignore_index = True).drop([28], axis = 1)
+X_test_new = pd.concat([pd.DataFrame(X_test),pd.Series(rf.predict(X_test)).reset_index()], axis=1,ignore_index = True).drop([28], axis = 1)
+
+
+NN_model2 = keras.Sequential([
+    keras.layers.Dense(29, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(100, activation=tf.nn.relu),
+    keras.layers.Dense(2, activation=tf.nn.softmax)
+])
+
+NN_model2.compile(optimizer=tf.train.AdamOptimizer(),
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+NN_model2.fit(np.array(X_train_new), np.array(Y_train), epochs=20)
+
+val_loss, val_acc = NN_model2.evaluate(np.array(X_val_new), np.array(Y_val))
+
+accuracies['RF+NeuralNet'] = val_acc
+accuracies
+
+
+# Choose Random Fofest model
+Y_test = rf.predict(X_test)
+
+output = pd.concat([test_df['PassengerId'],pd.to_numeric(pd.Series(Y_test),downcast='integer')], axis = 1)
+
+output.head()
+
+output.columns = ['PassengerId','Survived']
+
+output.to_csv('output.csv',index=False)
